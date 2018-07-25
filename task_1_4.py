@@ -1,9 +1,10 @@
 # Домашнее задание к лекции 1.7 «Классы и их применение в Python»
 class Animal(object):
-    def __init__(self, name, weight, voice):
+    voice_value = None
+
+    def __init__(self, name, weight):
         self.name = name
         self.weight = weight
-        self.voice = voice
 
     def feed(self):
         # кормить
@@ -11,15 +12,14 @@ class Animal(object):
 
     def voice(self):
         # различать по голосам(коровы мычат, утки крякают и т.д.)
-        print('voice', self.name, self.voice)
+        print('voice', self.name, self.voice_value)
 
     def product(self):
         raise NotImplementedError("Please Implement this method")
 
 
 class Sheep(Animal):
-    def __init__(self, name, weight):
-        super().__init__(name, weight, 'ba-a-ba-a')
+    voice_value = 'ba-a-ba-a'
 
     def shear(self):
         # овец стричь
@@ -39,19 +39,14 @@ class MilkAnimal(Animal):
 
 
 class Cow(MilkAnimal):
-    def __init__(self, name, weight):
-        super().__init__(name, weight, 'moo-moo')
+    voice_value = 'moo-moo'
 
 
 class Goat(MilkAnimal):
-    def __init__(self, name, weight):
-        super().__init__(name, weight, 'ma-a-ma-a')
+    voice_value = 'ma-a-ma-a'
 
 
 class Bird(Animal):
-    def __init__(self, name, weight, voice):
-        super().__init__(name, weight, voice)
-
     def egg(self):
         # собирать яйца у кур, утки и гусей
         print('egg', self.name)
@@ -61,18 +56,15 @@ class Bird(Animal):
 
 
 class Goose(Bird):
-    def __init__(self, name, weight):
-        super().__init__(name, weight, 'honk-honk')
+    voice_value = 'honk-honk'
 
 
 class Chicken(Bird):
-    def __init__(self, name, weight):
-        super().__init__(name, weight, 'cluck-cluck')
+    voice_value = 'cluck-cluck'
 
 
 class Duck(Bird):
-    def __init__(self, name, weight):
-        super().__init__(name, weight, 'quack-quack')
+    voice_value = 'quack-quack'
 
 
 # Для каждого животного из списка должен существовать экземпляр класса.
