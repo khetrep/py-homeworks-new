@@ -40,7 +40,7 @@ class VKBase:
         return '?'.join((VKUser.VK_AUTH_URL, urlencode(auth_data)))
 
     def make_get_request(self, method, data, token=None):
-        print('.', end=None)
+        print('.', end='')
         url = self.VK_API_URL + method
         params = dict(
             access_token=token if token else self.SERVICE_TOKEN,
@@ -147,12 +147,22 @@ class VKUser(VKBase):
         data = dict(
             user_id=user_id if user_id else self.user_id,
             count=1000,
-            fields=['description', 'status'],
+            fields=['description', 'status', 'followers_count', 'counters'],
             extended=1
         )
         response = self.make_get_request('groups.get', data)
         items = response.json()['response']['items']
         return list(map(VKGroup.json2group, items))
+
+    def get_group_members_count(self, group_id):
+        # Returns a list of user groups.
+        data = dict(
+            group_id=group_id,
+            count=0,
+            fields=['common_count', 'counters']
+        )
+        response = self.make_get_request('groups.getMembers', data)
+        return response.json()['response']['count']
 
     def is_memeber_group(self, group_id, user_ids):
         data = dict(
@@ -161,7 +171,7 @@ class VKUser(VKBase):
             extended=1
         )
         response = self.make_get_request('groups.isMember', data)
-        print(response.json())
+        #print(response.json())
         items = response.json()['response']
         return list(map(VKGroup.json2group, items))
 
@@ -171,7 +181,7 @@ class VKUser(VKBase):
             count=1000
         )
         response = self.make_get_request('groups.getMembers', data)
-        print(response.json())
+        #print(response.json())
         items = response.json()['response']
         return items
 
