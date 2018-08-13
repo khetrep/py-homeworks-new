@@ -1,11 +1,22 @@
 import requests
 from urllib.parse import urlencode
-from pprint import pprint
-import json
 import time
+
 
 def intersect(a, b):
     return list(set(a) & set(b))
+
+
+class VKException(Exception):
+    def __init__(self, json):
+        if json:
+            self.__dict__.update(json)
+
+    def __repr__(self):
+        return '{} {}'.format(self.error_code, self.error_msg)
+
+    def __str__(self):
+        return '{} {}'.format(self.error_code, self.error_msg)
 
 
 class VKBase:
@@ -21,11 +32,20 @@ class VKBase:
     VK_URL = 'https://vk.com/'
     VK_API_VERSION = '5.80'
 
+    req_counter = 0
+    resp_error_counter = 0
+    resp_ok_counter = 0
+
     def __str__(self):
         return str(self.__dict__)
 
     def __repr__(self):
         return str(self.__dict__)
+
+    @classmethod
+    def debug(cls):
+        print('Requests {}, error responses {}, ok responses {}'.format(cls.req_counter, cls.resp_error_counter,
+                                                                         cls.resp_ok_counter))
 
     @staticmethod
     def get_auth_url():
@@ -49,13 +69,20 @@ class VKBase:
         if data:
             params = {**params, **data}
         try:
+            VKBase.req_counter += 1
             response = requests.get(url, params=params)
             error = response.json().get('error')
-            if error and error.get('error_code') == 6:
-                # Too many requests per second
-                print('Handle "Too many requests per second", wait {} seconds and retry'.format(self.TIMEOUT))
-                time.sleep(self.TIMEOUT)
-                response = requests.get(url, params=params)
+            if error:
+                VKBase.resp_error_counter += 1
+                if error.get('error_code') == 6:
+                    # Too many requests per second
+                    print('Handle "Too many requests per second", wait {} seconds and retry'.format(self.TIMEOUT))
+                    time.sleep(self.TIMEOUT)
+                    response = requests.get(url, params=params)
+                else:
+                    raise VKException(error)
+            else:
+                VKBase.resp_ok_counter += 1
         except requests.ReadTimeout:
             print('Handle ReadTimeout, wait {} seconds and retry'.format(self.TIMEOUT))
             time.sleep(self.TIMEOUT)
@@ -171,7 +198,7 @@ class VKUser(VKBase):
             extended=1
         )
         response = self.make_get_request('groups.isMember', data)
-        #print(response.json())
+        # print(response.json())
         items = response.json()['response']
         return list(map(VKGroup.json2group, items))
 
@@ -181,7 +208,7 @@ class VKUser(VKBase):
             count=1000
         )
         response = self.make_get_request('groups.getMembers', data)
-        #print(response.json())
+        # print(response.json())
         items = response.json()['response']
         return items
 
@@ -196,8 +223,6 @@ class VKUsers(VKBase):
         )
         response = self.make_get_request('users.get', data=data)
         response_data = response.json().get('response')
-        if not response_data:
-            raise Exception(response.json().get('error'))
         return VKUser.json2user(response_data[0])
 
     def are_friends(self, user_ids):
