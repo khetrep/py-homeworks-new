@@ -1,16 +1,18 @@
-import requests
-from urllib.parse import urlencode
 import time
 
+import requests
 
-def intersect(a, b):
-    return list(set(a) & set(b))
+ERROR_TOO_MANY_REQUESTS = 6
+USER_IDS_LIMIT = 500
 
 
 class VKException(Exception):
+
     def __init__(self, json):
-        if json:
-            self.__dict__.update(json)
+        if type(json) is dict:
+            self.error_code = json.get('error_code')
+            self.error_msg = json.get('error_msg')
+            self.request_params = json.get('request_params')
 
     def __repr__(self):
         return '{} {}'.format(self.error_code, self.error_msg)
@@ -20,17 +22,12 @@ class VKException(Exception):
 
 
 class VKBase:
-    SERVICE_TOKEN = ''
-    USER_TOKEN = ''
-
-    TIMEOUT = 2
-
-    APP_ID = 6649468  # my
-    # APP_ID = 6642949
     VK_AUTH_URL = 'https://oauth.vk.com/authorize'
     VK_API_URL = 'https://api.vk.com/method/'
     VK_URL = 'https://vk.com/'
     VK_API_VERSION = '5.80'
+
+    TIMEOUT = 2
 
     req_counter = 0
     resp_error_counter = 0
@@ -45,25 +42,13 @@ class VKBase:
     @classmethod
     def debug(cls):
         print('Requests {}, error responses {}, ok responses {}'.format(cls.req_counter, cls.resp_error_counter,
-                                                                         cls.resp_ok_counter))
-
-    @staticmethod
-    def get_auth_url():
-        auth_data = {
-            'client_id': VKUser.APP_ID,
-            'redirect_url': 'https://oauth.vk.com/blank.html',
-            'display': 'page',
-            'scope': 'friends, status',
-            'response_type': 'token',
-            'v': VKUser.VK_API_VERSION
-        }
-        return '?'.join((VKUser.VK_AUTH_URL, urlencode(auth_data)))
+                                                                        cls.resp_ok_counter))
 
     def make_get_request(self, method, data, token=None):
         print('.', end='')
         url = self.VK_API_URL + method
         params = dict(
-            access_token=token if token else self.SERVICE_TOKEN,
+            access_token=token if token else self.service_token,
             v=self.VK_API_VERSION
         )
         if data:
@@ -74,11 +59,14 @@ class VKBase:
             error = response.json().get('error')
             if error:
                 VKBase.resp_error_counter += 1
-                if error.get('error_code') == 6:
+                if error.get('error_code') == ERROR_TOO_MANY_REQUESTS:
                     # Too many requests per second
                     print('Handle "Too many requests per second", wait {} seconds and retry'.format(self.TIMEOUT))
                     time.sleep(self.TIMEOUT)
                     response = requests.get(url, params=params)
+                    error = response.json().get('error')
+                    if error:
+                        raise VKException(error)
                 else:
                     raise VKException(error)
             else:
@@ -87,29 +75,32 @@ class VKBase:
             print('Handle ReadTimeout, wait {} seconds and retry'.format(self.TIMEOUT))
             time.sleep(self.TIMEOUT)
             response = requests.get(url, params=params)
+            error = response.json().get('error')
+            if error:
+                raise VKException(error)
         return response
 
 
 class VKGroup(VKBase):
-    id = None
-    name = None
 
-    @staticmethod
-    def json2group(json):
-        group = VKGroup()
-        group.__dict__.update(json)
-        return group
+    def __init__(self, json):
+        if type(json) is dict:
+            self.id = json.get('id')
+            self.name = json.get('name')
+            self.member = json.get('member')
+            self.user_id = json.get('user_id')
+            self.members_count = json.get('members_count')
 
 
 class VKUser(VKBase):
-    user_id = None
-    first_name = None
-    last_name = None
-    nickname = None
-    site = None
 
-    def __init__(self, user_id):
-        self.user_id = user_id
+    def __init__(self, json):
+        if type(json) is dict:
+            self.user_id = json.get('id')
+            self.first_name = json.get('first_name')
+            self.last_name = json.get('last_name')
+            self.nickname = json.get('nickname')
+            self.site = json.get('site')
 
     def __hash__(self):
         return hash(self.user_id)
@@ -123,33 +114,6 @@ class VKUser(VKBase):
     def description(self):
         return '{} {}'.format(self.first_name, self.last_name)
 
-    def __lt__(self, other):
-        return self.user_id < other.user_id
-
-    def ___le__(self, other):
-        return self.user_id <= other.user_id
-
-    def __eq__(self, other):
-        return self.user_id == other.user_id
-
-    def __ne__(self, other):
-        return self.user_id != other.user_id
-
-    def __gt__(self, other):
-        return self.user_id > other.user_id
-
-    def __ge__(self, other):
-        return self.user_id >= other.user_id
-
-    @staticmethod
-    def json2user(json):
-        user = VKUser(json.get('id'))
-        user.first_name = json.get('first_name')
-        user.last_name = json.get('last_name')
-        user.nickname = json.get('nickname')
-        user.site = json.get('site')
-        return user
-
     def get_friends(self, user_id=None):
         # Returns a list of user IDs or detailed information about a user's friends.
         data = dict(
@@ -160,57 +124,37 @@ class VKUser(VKBase):
         )
         response = self.make_get_request('friends.get', data)
         items = response.json()['response']['items']
-        return list(map(VKUser.json2user, items))
-
-    def __and__(self, other):
-        friends1 = self.get_friends()
-        friends2 = other.get_friends()
-        common_friends = intersect(friends1, friends2)
-        common_friends.sort()
-        return common_friends
+        return list(map(VKUser, items))
 
     def get_groups(self, user_id=None):
         # Returns a list of user groups.
         data = dict(
             user_id=user_id if user_id else self.user_id,
             count=1000,
-            fields=['description', 'status', 'followers_count', 'counters'],
+            fields=['description', 'status', 'followers_count', 'counters', 'members_count'],
             extended=1
         )
         response = self.make_get_request('groups.get', data)
         items = response.json()['response']['items']
-        return list(map(VKGroup.json2group, items))
+        return list(map(VKGroup, items))
 
-    def get_group_members_count(self, group_id):
-        # Returns a list of user groups.
+    def is_member_group0(self, group_id, user_ids):
         data = dict(
             group_id=group_id,
-            count=0,
-            fields=['common_count', 'counters']
-        )
-        response = self.make_get_request('groups.getMembers', data)
-        return response.json()['response']['count']
-
-    def is_memeber_group(self, group_id, user_ids):
-        data = dict(
-            group_id=group_id,
-            user_ids=str(user_ids),
+            user_ids=','.join(map(str, user_ids)),
             extended=1
         )
         response = self.make_get_request('groups.isMember', data)
-        # print(response.json())
-        items = response.json()['response']
-        return list(map(VKGroup.json2group, items))
+        return response.json()['response']
 
-    def get_groups_memebers(self, group_id):
-        data = dict(
-            group_id=group_id,
-            count=1000
-        )
-        response = self.make_get_request('groups.getMembers', data)
-        # print(response.json())
-        items = response.json()['response']
-        return items
+    def is_member_group(self, group_id, user_ids):
+        if len(user_ids) <= USER_IDS_LIMIT:
+            return self.is_member_group0(group_id, user_ids)
+        else:
+            members = []
+            for a in [user_ids[i:i + USER_IDS_LIMIT] for i in range(0, len(user_ids), USER_IDS_LIMIT)]:
+                members.extend(self.is_member_group0(group_id, a))
+            return members
 
 
 class VKUsers(VKBase):
@@ -223,18 +167,4 @@ class VKUsers(VKBase):
         )
         response = self.make_get_request('users.get', data=data)
         response_data = response.json().get('response')
-        return VKUser.json2user(response_data[0])
-
-    def are_friends(self, user_ids):
-        # Checks the current user's friendship status with other specified users.
-        response = self.make_get_request('friends.areFriends', dict(user_ids=user_ids), token=self.USER_TOKEN)
-        return bool(response.json()['response'][0]['friend_status'])
-
-    def get_friends_mutual(self, user1, user2):
-        # Returns a list of user IDs of the mutual friends of two users.
-        data = dict(
-            source_uid=user1,
-            target_uid=user2
-        )
-        response = self.make_get_request('friends.getMutual', data, token=self.USER_TOKEN)
-        return list(map(self.get, response.json()['response']))
+        return VKUser(response_data[0])

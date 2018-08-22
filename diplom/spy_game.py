@@ -3,16 +3,14 @@
 Вывести список групп в ВК в которых состоит пользователь, но не состоит никто из его друзей.
 В качестве жертвы, на ком тестировать, можно использовать: https://vk.com/eshmargunov
 """
+import json
 import os
 import sys
-from myvk import *
 from pprint import pprint
-import json
 
-VK_USER = 'eshmargunov'
-VK_USER_ID = 171691064
-
-VK_TOKEN = '7b23e40ad10e08d3b7a8ec0956f2c57910c455e886b480b7d9fb59859870658c4a0b8fdc4dd494db19099'
+from myvk import VKBase
+from myvk import VKException
+from myvk import VKUsers
 
 
 def write_to_file(filename, groups):
@@ -36,6 +34,14 @@ def read_user_id():
         return text
 
 
+def read_secret_token():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    secret_file = os.path.join(current_dir, 'secret.json')
+    with open(secret_file, 'r') as f:
+        store = json.load(f)
+        return store['token']
+
+
 def main(user_id):
     users = VKUsers()
     try:
@@ -54,23 +60,21 @@ def main(user_id):
 
     friends_ids = list(map(lambda x: x.user_id, friends))
     for group in groups:
-        is_member = user.is_memeber_group(group.id, friends_ids)
+        is_member = user.is_member_group(group.id, friends_ids)
         for m in is_member:
-            if m.member == 1:
+            if m.get('member') == 1:
                 # print('user {} is member group {}'.format(m.user_id, group.id))
                 del groups_dict[group.id]
                 break
 
     groups_for_write = []
-    for id,g in groups_dict.items():
-        # print(g)
+    for group_id, g in groups_dict.items():
         groups_for_write.append({
             'name': g.name,
             'gid': str(g.id),
-            'members_count': user.get_group_members_count(g.id)
+            'members_count': g.members_count
         })
-    print()
-    print('Found target groups: {}'.format(len(groups_dict)))
+    print('\n\nFound target groups: {}'.format(len(groups_dict)))
     pprint(groups_for_write)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -79,9 +83,8 @@ def main(user_id):
 
 
 if __name__ == "__main__":
-    in_user_id = read_user_id()
-    VKBase.USER_TOKEN = VK_TOKEN
-    VKBase.SERVICE_TOKEN = VK_TOKEN
-    main(in_user_id)
+    VKBase.service_token = read_secret_token()
+
+    main(read_user_id())
 
     VKBase.debug()
