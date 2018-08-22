@@ -1,5 +1,4 @@
 import time
-
 import requests
 
 ERROR_TOO_MANY_REQUESTS = 6
