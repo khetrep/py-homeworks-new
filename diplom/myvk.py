@@ -1,14 +1,15 @@
 import time
 import requests
 
-ERROR_TOO_MANY_REQUESTS = 6
+ERROR_CODE_TOO_MANY_REQUESTS = 6
 USER_IDS_LIMIT = 500
+TRY_REQUEST_LIMIT = 1
 
 
 class VKException(Exception):
 
     def __init__(self, json):
-        if type(json) is dict:
+        if isinstance(json, dict):
             self.error_code = json.get('error_code')
             self.error_msg = json.get('error_msg')
             self.request_params = json.get('request_params')
@@ -43,8 +44,34 @@ class VKBase:
         print('Requests {}, error responses {}, ok responses {}'.format(cls.req_counter, cls.resp_error_counter,
                                                                         cls.resp_ok_counter))
 
-    def make_get_request(self, method, data, token=None):
+    def _try_get_request(self, url, params, attempt):
         print('.', end='')
+        try:
+            VKBase.req_counter += 1
+            response = requests.get(url, params=params)
+            error = response.json().get('error')
+            if error:
+                VKBase.resp_error_counter += 1
+                if error.get('error_code') == ERROR_CODE_TOO_MANY_REQUESTS:
+                    if attempt <= 0:
+                        raise Exception('Attempt limit {} exceeded for retry requests.'.format(TRY_REQUEST_LIMIT))
+                    print('"Too many requests per second", wait {} seconds and retry'.format(self.TIMEOUT))
+                    time.sleep(self.TIMEOUT)
+                    response = self._try_get_request(url, params, attempt - 1)
+                else:
+                    raise VKException(error)
+            else:
+                VKBase.resp_ok_counter += 1
+        except requests.ReadTimeout:
+            VKBase.resp_error_counter += 1
+            if attempt <= 0:
+                raise Exception('Attempt limit {} exceeded for retry requests.'.format(TRY_REQUEST_LIMIT))
+            print('Handle ReadTimeout, wait {} seconds and retry'.format(self.TIMEOUT))
+            time.sleep(self.TIMEOUT)
+            response = self._try_get_request(url, params, attempt - 1)
+        return response
+
+    def make_get_request(self, method, data, token=None):
         url = self.VK_API_URL + method
         params = dict(
             access_token=token if token else self.service_token,
@@ -52,38 +79,13 @@ class VKBase:
         )
         if data:
             params = {**params, **data}
-        try:
-            VKBase.req_counter += 1
-            response = requests.get(url, params=params)
-            error = response.json().get('error')
-            if error:
-                VKBase.resp_error_counter += 1
-                if error.get('error_code') == ERROR_TOO_MANY_REQUESTS:
-                    # Too many requests per second
-                    print('Handle "Too many requests per second", wait {} seconds and retry'.format(self.TIMEOUT))
-                    time.sleep(self.TIMEOUT)
-                    response = requests.get(url, params=params)
-                    error = response.json().get('error')
-                    if error:
-                        raise VKException(error)
-                else:
-                    raise VKException(error)
-            else:
-                VKBase.resp_ok_counter += 1
-        except requests.ReadTimeout:
-            print('Handle ReadTimeout, wait {} seconds and retry'.format(self.TIMEOUT))
-            time.sleep(self.TIMEOUT)
-            response = requests.get(url, params=params)
-            error = response.json().get('error')
-            if error:
-                raise VKException(error)
-        return response
+        return self._try_get_request(url, params, TRY_REQUEST_LIMIT)
 
 
 class VKGroup(VKBase):
 
     def __init__(self, json):
-        if type(json) is dict:
+        if isinstance(json, dict):
             self.id = json.get('id')
             self.name = json.get('name')
             self.member = json.get('member')
@@ -94,7 +96,7 @@ class VKGroup(VKBase):
 class VKUser(VKBase):
 
     def __init__(self, json):
-        if type(json) is dict:
+        if isinstance(json, dict):
             self.user_id = json.get('id')
             self.first_name = json.get('first_name')
             self.last_name = json.get('last_name')
@@ -119,7 +121,6 @@ class VKUser(VKBase):
             user_id=user_id if user_id else self.user_id,
             count=1000,
             fields=['nickname', 'site'],
-            # fields=['nickname', 'domain', 'sex', 'city', 'country'],
         )
         response = self.make_get_request('friends.get', data)
         items = response.json()['response']['items']
@@ -137,7 +138,7 @@ class VKUser(VKBase):
         items = response.json()['response']['items']
         return list(map(VKGroup, items))
 
-    def is_member_group0(self, group_id, user_ids):
+    def _is_member_group(self, group_id, user_ids):
         data = dict(
             group_id=group_id,
             user_ids=','.join(map(str, user_ids)),
@@ -148,11 +149,11 @@ class VKUser(VKBase):
 
     def is_member_group(self, group_id, user_ids):
         if len(user_ids) <= USER_IDS_LIMIT:
-            return self.is_member_group0(group_id, user_ids)
+            return self._is_member_group(group_id, user_ids)
         else:
             members = []
             for a in [user_ids[i:i + USER_IDS_LIMIT] for i in range(0, len(user_ids), USER_IDS_LIMIT)]:
-                members.extend(self.is_member_group0(group_id, a))
+                members.extend(self._is_member_group(group_id, a))
             return members
 
 

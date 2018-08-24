@@ -7,10 +7,7 @@ import json
 import os
 import sys
 from pprint import pprint
-
-from myvk import VKBase
-from myvk import VKException
-from myvk import VKUsers
+from myvk import VKBase, VKException, VKUsers
 
 
 def write_to_file(filename, groups):
